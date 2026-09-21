@@ -3,8 +3,12 @@
 Reports frame counts, class balance, detection failures, pixel mean/std,
 and asserts zero clip-ID overlap across train/val/test.
 
+The 28,800-frames-per-class target is specific to FF++. Pass --dataset dfdc
+(or generic) to keep every structural check but drop that count expectation.
+
 Usage:
     python scripts/verify_data.py --data data/ffpp_c23 --splits splits/
+    python scripts/verify_data.py --data data/dfdc --dataset dfdc
 """
 
 from __future__ import annotations
@@ -18,9 +22,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-MANIPS = ["Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures", "FaceShifter"]
+MANIPS = ["Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures", "FaceShifter", "fake"]
 TARGET_TRAIN_REAL = 28800
-TARGET_TRAIN_PER_MANIP = 7200
 MAX_RATIO = 1.05
 MAX_DETECT_FAIL = 0.02
 
@@ -98,12 +101,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--splits", default="splits")
+    ap.add_argument("--dataset", default="ffpp", choices=["ffpp", "dfdc", "generic"],
+                    help="ffpp also checks the 28,800-frames-per-class target")
     ap.add_argument("--out", default=None, help="write JSON report here")
     args = ap.parse_args()
 
     root = Path(args.data)
     report = {
         "data": str(root),
+        "dataset": args.dataset,
         "counts": {},
         "class_balance": {},
         "shapes": {},
@@ -175,15 +181,22 @@ def main():
     detect_rate = report["failures"].get("detection_failure_rate")
     n_bad_shapes = sum(len(v.get("bad", [])) for v in report["shapes"].values())
 
-    report["acceptance"] = {
-        "train_real_near_28800": n_real > 0 and abs(n_real - TARGET_TRAIN_REAL) / TARGET_TRAIN_REAL < 0.05,
-        "train_fake_near_28800": n_fake > 0 and abs(n_fake - TARGET_TRAIN_REAL) / TARGET_TRAIN_REAL < 0.05,
+    acceptance = {
         "class_ratio_within_1.05": ratio is not None and ratio <= MAX_RATIO,
-        "detection_fail_lt_2pct": detect_rate is not None and detect_rate < MAX_DETECT_FAIL,
+        "detection_fail_lt_2pct": (
+            detect_rate < MAX_DETECT_FAIL if detect_rate is not None
+            else "unknown: no failures.json, rerun preprocessing to produce it"
+        ),
         "all_crops_256_rgb_png": n_bad_shapes == 0,
         "zero_clip_id_overlap": len(report["overlap_errors"]) == 0,
-        "per_manipulation_train_frames": per_manip,
+        "train_split_non_empty": n_real > 0 and n_fake > 0,
     }
+    if args.dataset == "ffpp":
+        near = lambda v: v > 0 and abs(v - TARGET_TRAIN_REAL) / TARGET_TRAIN_REAL < 0.05
+        acceptance["train_real_near_28800"] = near(n_real)
+        acceptance["train_fake_near_28800"] = near(n_fake)
+    acceptance["per_manipulation_train_frames"] = per_manip
+    report["acceptance"] = acceptance
 
     text = json.dumps(report, indent=2)
     print(text)
