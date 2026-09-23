@@ -6,8 +6,8 @@ Six-column layout (one row per source):
     input | F (channel-mean) | A | F⊙A (channel-mean) | Grad-CAM | overlay
 
 Usage:
-    python scripts/gradcam.py --ckpt runs/wgn_c23_s0/best.pt \
-        --data data/ffpp_c23 --out figures/figure2.png
+    python scripts/gradcam.py --ckpt runs/wgn_dfdc_s0/best.pt \
+        --data data/dfdc --out figures/attention_dfdc.png --device mps
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from wgn.model import WGN
-from wgn.train import MEAN, STD, MANIPULATIONS, build_transforms
+from wgn.train import MEAN, STD, MANIPULATIONS, build_transforms, pick_device
 
 try:
     from wgn.baselines import CBAMAttention
@@ -76,12 +76,38 @@ def gradcam_fused(model: WGN, x: torch.Tensor) -> torch.Tensor:
     return cam[0, 0]
 
 
-def pick_image(data: Path, split: str, category: str) -> Path | None:
+def categories_for(data: Path, split: str) -> list[str]:
+    """DFDC, Celeb-DF, and HiDF are real/fake. FF++ adds manipulation folders."""
+    root = data / split
+    if not root.is_dir():
+        return []
+    names = {p.name for p in root.iterdir() if p.is_dir()}
+    if names >= {"real", "fake"} and not (names & set(MANIPULATIONS)):
+        return ["real", "fake"]
+    return [c for c in ["real", *MANIPULATIONS] if c in names]
+
+
+def pick_images(data: Path, split: str, category: str, n: int) -> list[Path]:
+    """One middle frame from each of n clips, so a row is not eight frames of one video."""
     d = data / split / category
-    if not d.exists():
-        return None
-    pngs = sorted(d.rglob("*.png"))
-    return pngs[0] if pngs else None
+    if not d.is_dir():
+        return []
+    clips = sorted(p for p in d.iterdir() if p.is_dir())
+    chosen = []
+    if clips:
+        step = max(1, len(clips) // n)
+        for clip in clips[::step]:
+            frames = sorted(clip.glob("*.png"))
+            if frames:
+                chosen.append(frames[len(frames) // 2])
+            if len(chosen) == n:
+                break
+        return chosen
+    frames = sorted(d.rglob("*.png"))
+    if not frames:
+        return []
+    step = max(1, len(frames) // n)
+    return frames[::step][:n]
 
 
 def load_model(args, device):
@@ -96,7 +122,7 @@ def load_model(args, device):
         attention=attention,
         wgsa_kwargs=wgsa_kwargs,
     ).to(device)
-    ckpt = torch.load(args.ckpt, map_location=device)
+    ckpt = torch.load(args.ckpt, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model
@@ -112,34 +138,39 @@ def main():
     ap.add_argument("--attention", default="wgsa", choices=["wgsa", "cbam"])
     ap.add_argument("--split", default="test")
     ap.add_argument("--size", type=int, default=256)
+    ap.add_argument("--per-class", type=int, default=2)
+    ap.add_argument("--device", default=None, choices=["cpu", "mps", "cuda"])
     args = ap.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device or pick_device()
+    print(f"device {device}")
     model = load_model(args, device)
     tf = build_transforms(train=False, size=args.size)
 
-    rows = ["real", *MANIPULATIONS]
+    rows = categories_for(Path(args.data), args.split)
     cols = []
     missing = []
     for cat in rows:
-        path = pick_image(Path(args.data), args.split, cat)
-        if path is None:
+        paths = pick_images(Path(args.data), args.split, cat, args.per_class)
+        if not paths:
             missing.append(cat)
             continue
-        img = Image.open(path).convert("RGB")
-        x = tf(img).unsqueeze(0).to(device)
-        x.requires_grad_(True)
-        logit, attn, feat, att_feat = model(x, return_attention=True)
-        cam = gradcam_fused(model, x)
-        rgb = denorm(x[0].detach())
-        f_map = to_heat(feat[0].mean(0), args.size)
-        a_map = to_heat(attn[0, 0], args.size)
-        fa_map = to_heat(att_feat[0].mean(0), args.size)
-        g_map = to_heat(cam, args.size)
-        ov = overlay(rgb, g_map)
-        cols.append((cat, [rgb, f_map, a_map, fa_map, g_map, ov]))
-        print(f"{cat}: logit={logit.item():.3f} attn[min,max]="
-              f"{attn.min().item():.3f},{attn.max().item():.3f} <- {path}")
+        for path in paths:
+            img = Image.open(path).convert("RGB")
+            x = tf(img).unsqueeze(0).to(device)
+            x.requires_grad_(True)
+            logit, attn, feat, att_feat = model(x, return_attention=True)
+            cam = gradcam_fused(model, x)
+            rgb = denorm(x[0].detach())
+            f_map = to_heat(feat[0].mean(0), args.size)
+            a_map = to_heat(attn[0, 0], args.size)
+            fa_map = to_heat(att_feat[0].mean(0), args.size)
+            g_map = to_heat(cam, args.size)
+            ov = overlay(rgb, g_map)
+            label = f"{cat}  logit {logit.item():+.2f}"
+            cols.append((label, [rgb, f_map, a_map, fa_map, g_map, ov]))
+            print(f"{label} attn[min,max]="
+                  f"{attn.min().item():.3f},{attn.max().item():.3f} <- {path}")
 
     if not cols:
         raise SystemExit(f"no images found under {args.data}/{args.split} ({missing})")
@@ -147,23 +178,23 @@ def main():
     headers = ["input", "F", "A", "F⊙A", "Grad-CAM", "overlay"]
     cell = args.size
     pad = 4
-    label_h = 24
+    label_h = 18
     n_rows, n_cols = len(cols), 6
     canvas = Image.new(
         "RGB",
         (n_cols * (cell + pad) + pad, label_h + n_rows * (cell + pad + label_h) + pad),
         (255, 255, 255),
     )
-    # header
+    draw = ImageDraw.Draw(canvas)
     for j, name in enumerate(headers):
-        # baked as a thin coloured bar + we print names to stdout; PIL default font is optional
-        pass
+        draw.text((pad + j * (cell + pad), 2), name, fill=(0, 0, 0))
     y = label_h
     for cat, images in cols:
         x = pad
         for im in images:
             canvas.paste(Image.fromarray(im), (x, y))
             x += cell + pad
+        draw.text((pad, y + cell + 2), cat, fill=(0, 0, 0))
         y += cell + pad + label_h
 
     dest = Path(args.out)

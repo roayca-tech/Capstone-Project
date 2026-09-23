@@ -1,0 +1,5 @@
+{
+  "device": "mps",
+  "ckpt": "runs/wgn_dfdc_s0/best.pt",
+  "per_class": 2
+}
