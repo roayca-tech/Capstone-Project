@@ -1,0 +1,41 @@
+{
+  "tag": "baseline_dfdc_s0",
+  "seed": 0,
+  "git_sha": "a3c4540ea195c5a9b2c36a6e713bf400b58a933e",
+  "timestamp": "2026-09-22T09:38:40.083477+00:00",
+  "device": "mps",
+  "amp": false,
+  "num_params_m": 4.938273,
+  "metric_level": "frame",
+  "train_manips": [
+    "fake"
+  ],
+  "train_size": 78729,
+  "val_size": 15919,
+  "args": {
+    "data": "data/dfdc",
+    "backbone": "mobilevit_s",
+    "fusion": "concat",
+    "train_manip": null,
+    "epochs": 25,
+    "batch_size": 32,
+    "lr": 0.0001,
+    "optimizer": "adam",
+    "workers": 4,
+    "amp": false,
+    "size": 256,
+    "seed": 0,
+    "tag": "baseline_dfdc_s0",
+    "out": "runs",
+    "ckpt": null,
+    "eval_only": false,
+    "no_wgsa": true,
+    "attention": "wgsa",
+    "pooling": "avgmax",
+    "norm": "minmax",
+    "use_ll": true,
+    "gating": true,
+    "bands": null,
+    "pretrained": true
+  }
+}

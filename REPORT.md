@@ -19,10 +19,10 @@ This changes what can be claimed:
 | Phase | Status |
 |---|---|
 | 0–2 Environment + WGSA + WGN | Code in place. 53 tests cover the paper invariants. |
-| 3 Data pipeline | **DFDC path ready, not yet run.** `scripts/prepare_dfdc.py` plans identity-safe splits and balanced frame budgets; verified end to end on synthetic data. Awaiting the Kaggle download. FF++ path remains unused. |
-| 4 In-domain training | **Not executed.** `--no-wgsa`, run logging, and seed flags are implemented. |
-| 5 Generalisation | **Not executed**, and largely out of scope without FF++. Celeb-DF v2 requested via the authors' form. |
-| 6 Ablations | Code ready (C2 `CBAMAttention`, C7 `bands="hh"`, C0 `BaselineNet`). No ablation has been trained. C1 vs C0 and C1 vs C2 are still runnable on DFDC. |
+| 3 Data pipeline | **Executed.** Parts 00–03, 6,236 clips, 643 identities, identity-safe 70/15/15 split, audit passed (`data/dfdc/verify_report.json`). FF++ path remains unused. |
+| 4 In-domain training | **Executed.** WGN and backbone-only, seeds 0 and 1, 25 epochs, frame-level. See the in-domain table below. |
+| 5 Generalisation | **Executed as extra tests of the DFDC checkpoints**, not as the paper's Table 2. Celeb-DF v2 official test list and HiDF. See the table below. |
+| 6 Ablations | C0 (backbone-only) vs WGN is the in-domain table below. C2 (`CBAMAttention`) and C7 (`bands="hh"`) have not been trained. |
 | 7 Visualisation / tables | Scripts exist. `scripts/make_tables.py` emits "not executed" for every row until `runs/*/metrics.json` appear. |
 
 ## What is implemented
@@ -37,11 +37,7 @@ This changes what can be claimed:
 
 ## What did not execute
 
-No training job was started. There is no `runs/<tag>/metrics.json` from a real fit, so no table below can be filled.
-
-The DFDC planner and the data audit were exercised end to end on synthetic metadata only. No real video has been decoded.
-
-FF++ remains gated on the [maintainer access form](https://docs.google.com/forms/d/e/1FAIpQLSdRRR3L5zAv6tQ_CKxmK4W96tAab_pfBu2EKAgQbeDVhmXagg/viewform); no mirror was substituted for it. Celeb-DF and WildDeepfake are absent.
+FF++ training and cross-manipulation evaluation were not run. Tables 1, 2, 3, and 6 below stay **not executed**. Table 2 is an FF++-trained model; the Celeb-DF and HiDF numbers later in this report are DFDC checkpoints tested on those sets, and they are not that table. WildDeepfake was not used. `runs/wgn_dfdc_s0_partial/` is an interrupted earlier attempt and is not a result.
 
 ## Table 1 (in-domain, frame-level)
 
@@ -77,30 +73,44 @@ Published targets: WGN C23 95.32 / 98.90; backbone C23 93.70 / 98.12; WGN C40 80
 |---|---:|---:|---|
 | C0–C9 | not executed | see AGENT_SPEC | — |
 
-C1 > C0, C1 > C2, and C1 > C3 have **not been tested on real data**.
+WGN versus the backbone (the C1 versus C0 comparison) was run on DFDC and did not favor WGN. C1 versus C2 and C1 versus C3 have not been tested.
 
 ## Seeds and variance
 
-No multi-seed run has executed. Planned tags: `*_s0` and `*_s1`.
+Two seeds, identical split, frame-level test on 16,600 frames. Checkpoint chosen by best validation accuracy.
 
 ## Discrepancies
 
-None to report: no measured number exists yet.
+On this DFDC split the backbone-only model matches or beats WGN. Test accuracy is higher for the backbone on both seeds (about 0.1 point). Test AUC differs by less than 0.1 point and favors a different model on each seed. That does not support the claim that the wavelet gate improves detection here.
 
 ## In-domain DFDC (the actual capstone result)
 
-| Run | ACC | AUC | source |
-|---|---:|---:|---|
-| WGN DFDC | not executed | not executed | — |
-| Backbone-only DFDC | not executed | not executed | — |
+| Run | Seed | Val ACC | Val AUC | Test ACC | Test AUC | source |
+|---|---:|---:|---:|---:|---:|---|
+| WGN | 0 | 96.46 | 99.46 | 96.99 | 99.51 | `runs/wgn_dfdc_s0` |
+| Backbone-only | 0 | 96.54 | 99.48 | 97.09 | 99.48 | `runs/baseline_dfdc_s0` |
+| WGN | 1 | 96.31 | 99.25 | 96.83 | 99.52 | `runs/wgn_dfdc_s1` |
+| Backbone-only | 1 | 96.47 | 99.46 | 96.96 | 99.58 | `runs/baseline_dfdc_s1` |
 
-No published target exists for this comparison; the claim under test is that WGN beats the backbone under an identical pipeline.
+Validation numbers are the saved best checkpoint. Test numbers are that checkpoint on the held-out frames. No published target exists for in-domain DFDC training.
+
+## DFDC checkpoints on other datasets
+
+Same four checkpoints, no retraining. Frame-level. Celeb-DF is the official test list (5,180 frames); 65.64% of those frames are fake, so accuracy at or below that is not better than always answering "fake". HiDF is 86,975 frames and nearly balanced (majority accuracy 50.05%).
+
+| Test set | Model | Seed | Test ACC | Test AUC | source |
+|---|---|---:|---:|---:|---|
+| Celeb-DF v2 | WGN | 0 | 62.97 | 56.40 | `runs/wgn_dfdc_on_celebdf_s0` |
+| Celeb-DF v2 | Backbone-only | 0 | 65.27 | 64.15 | `runs/baseline_dfdc_on_celebdf_s0` |
+| Celeb-DF v2 | WGN | 1 | 62.16 | 56.09 | `runs/wgn_dfdc_on_celebdf_s1` |
+| Celeb-DF v2 | Backbone-only | 1 | 64.71 | 59.99 | `runs/baseline_dfdc_on_celebdf_s1` |
+| HiDF | WGN | 0 | 55.86 | 59.48 | `runs/wgn_dfdc_on_hidf_s0` |
+| HiDF | Backbone-only | 0 | 55.86 | 58.81 | `runs/baseline_dfdc_on_hidf_s0` |
+| HiDF | WGN | 1 | 56.72 | 61.40 | `runs/wgn_dfdc_on_hidf_s1` |
+| HiDF | Backbone-only | 1 | 57.11 | 61.36 | `runs/baseline_dfdc_on_hidf_s1` |
+
+On Celeb-DF the backbone leads on both seeds (AUC gaps −7.75 and −3.90). WGN is near chance. On HiDF both models sit just above chance; the AUC gap is +0.67 and +0.04, so the wavelet gate does not separate them. Neither result is the published Celeb-DF AUC of 77.62.
 
 ## Next step
 
-1. Accept the rules on the [Kaggle DFDC competition](https://www.kaggle.com/competitions/deepfake-detection-challenge) and download 3–4 training parts (~40 GB).
-2. `python scripts/prepare_dfdc.py --root ~/data/dfdc --out data/dfdc --dry-run` and check the printed split and frame budget.
-3. `python scripts/prepare_dfdc.py --root ~/data/dfdc --out data/dfdc`
-4. `python scripts/verify_data.py --data data/dfdc --dataset dfdc`
-5. Inspect `scripts/contact_sheet.py` output by eye; a wrong cropped face is a silent label error.
-6. Train WGN and the backbone baseline on the same split, two seeds each.
+C2 (CBAM) is still untrained, so the attention comparison in the paper's Table 6 is open. FF++ tables stay blocked until the maintainer grants access.

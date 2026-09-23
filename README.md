@@ -5,6 +5,7 @@ Efficient and Generalised Deepfake Detection* (CVPRW 2026).
 
 ## Start here
 
+- **`capstone_progress.ipynb`** — results a reviewer can read on GitHub. Each cell loads the logs under `runs/` and the saved output is what GitHub renders.
 - **`files/AGENT_SPEC.md`** — implementation specification, phases, acceptance criteria.
 - **`files/IMPLEMENTATION_PLAN.md`** — narrative plan, risks, effort.
 - **`REPORT.md`** — what has and has not been run.

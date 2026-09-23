@@ -1,0 +1,10 @@
+{
+  "fake": {
+    "n": 64,
+    "path": "contact_sheets/fake.png"
+  },
+  "real": {
+    "n": 64,
+    "path": "contact_sheets/real.png"
+  }
+}

@@ -38,6 +38,15 @@ MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 
 
+def pick_device() -> str:
+    """CUDA when present, otherwise the Apple GPU, otherwise CPU."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
@@ -225,7 +234,7 @@ def main():
         args.tag = default_tag(args)
 
     set_seed(args.seed)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = pick_device()
     use_amp = bool(args.amp and device == "cuda")
 
     manips = [args.train_manip] if args.train_manip else None
@@ -271,7 +280,7 @@ def main():
 
     loaded_ckpt = None
     if args.ckpt:
-        loaded_ckpt = torch.load(args.ckpt, map_location=device)
+        loaded_ckpt = torch.load(args.ckpt, map_location=device, weights_only=False)
         model.load_state_dict(loaded_ckpt["model"])
         print(f"loaded checkpoint {args.ckpt}")
 
@@ -298,6 +307,7 @@ def main():
 
     best = -1.0
     best_auc = float("nan")
+    best_epoch = None
     epoch_logs = []
     ckpt_path = out_dir / "best.pt"
 
@@ -327,29 +337,29 @@ def main():
             "val_auc": auc,
             "lr": sched.get_last_lr()[0],
         })
-        dump_json(out_dir / "metrics.json", {
-            "frame_level": True,
-            "epochs": epoch_logs,
-            "best": {"epoch": epoch, "acc": best, "auc": best_auc} if best >= 0 else None,
-        })
-
         # Paper selects the checkpoint with the best validation accuracy (Sec. 5.1).
         if acc > best:
-            best = acc
-            best_auc = auc
+            best = float(acc)
+            best_auc = float(auc)
+            best_epoch = epoch
             torch.save(
                 {
                     "model": model.state_dict(),
                     "epoch": epoch,
-                    "acc": acc,
-                    "auc": auc,
+                    "acc": best,
+                    "auc": best_auc,
                     "tag": args.tag,
                     "seed": args.seed,
                 },
                 ckpt_path,
             )
+        dump_json(out_dir / "metrics.json", {
+            "frame_level": True,
+            "epochs": epoch_logs,
+            "best": {"epoch": best_epoch, "acc": best, "auc": best_auc} if best_epoch else None,
+        })
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model"])
     print(f"\nbest val acc {ckpt['acc']:.2f} (epoch {ckpt['epoch']})  (frame-level)")
 

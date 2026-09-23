@@ -10,6 +10,8 @@ Usage:
         --root $DFDC --out data/dfdc
     python scripts/preprocess_external.py --dataset wilddeepfake \
         --root $WDF --out data/wilddeepfake
+    python scripts/preprocess_external.py --dataset hidf \
+        --root $HIDF --out data/hidf
 """
 
 from __future__ import annotations
@@ -141,10 +143,23 @@ def wilddeepfake_items(root: Path, out: Path, n_frames: int):
     return items
 
 
+def hidf_items(root: Path, out: Path, n_frames: int):
+    """HiDF videos: Real-vid/ and Fake-vid/ next to each other."""
+    items = []
+    for folder, label in (("Real-vid", "real"), ("Fake-vid", "fake")):
+        src_dir = root / folder
+        if not src_dir.exists():
+            continue
+        for src in _iter_videos(src_dir):
+            items.append((label, src.stem, src, out / "test" / label / src.stem, n_frames))
+    return items
+
+
 BUILDERS = {
     "celebdf": celebdf_items,
     "dfdc": dfdc_items,
     "wilddeepfake": wilddeepfake_items,
+    "hidf": hidf_items,
 }
 
 
